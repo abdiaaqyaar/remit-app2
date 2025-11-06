@@ -2,9 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   Alert,
 } from 'react-native';
@@ -12,18 +10,20 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Currency, ExchangeRate, Recipient } from '@/types/database';
-import { DollarSign, ArrowDown, Users } from 'lucide-react-native';
+import { ArrowLeft, Delete, Plus } from 'lucide-react-native';
+
+type Step = 'currency' | 'amount' | 'recipient';
 
 export default function SendMoneyScreen() {
   const router = useRouter();
   const { profile } = useAuth();
+  const [step, setStep] = useState<Step>('currency');
   const [currency, setCurrency] = useState<Currency>('USD');
   const [sendAmount, setSendAmount] = useState('');
   const [receiveAmount, setReceiveAmount] = useState('');
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [selectedRecipient, setSelectedRecipient] = useState<Recipient | null>(null);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     loadExchangeRate();
@@ -33,7 +33,7 @@ export default function SendMoneyScreen() {
   useEffect(() => {
     if (sendAmount && exchangeRate) {
       const receive = parseFloat(sendAmount) * exchangeRate.rate;
-      setReceiveAmount(receive.toFixed(2));
+      setReceiveAmount(receive.toLocaleString('en-US', { minimumFractionDigits: 3 }));
     } else {
       setReceiveAmount('');
     }
@@ -69,25 +69,22 @@ export default function SendMoneyScreen() {
     }
   };
 
-  const getCurrencySymbol = (curr: Currency) => {
-    switch (curr) {
-      case 'USD':
-        return '$';
-      case 'GBP':
-        return '£';
-      case 'EUR':
-        return '€';
+  const handleNumberPress = (num: string) => {
+    if (sendAmount.length < 10) {
+      setSendAmount(sendAmount + num);
     }
   };
 
-  const calculateFee = () => {
-    if (!sendAmount || !exchangeRate) return 0;
-    return (parseFloat(sendAmount) * exchangeRate.fee_percentage) / 100;
+  const handleBackspace = () => {
+    setSendAmount(sendAmount.slice(0, -1));
   };
 
-  const calculateTotal = () => {
-    if (!sendAmount) return 0;
-    return parseFloat(sendAmount) + calculateFee();
+  const handleContinueFromAmount = () => {
+    if (!sendAmount || parseFloat(sendAmount) <= 0) {
+      Alert.alert('Error', 'Please enter a valid amount');
+      return;
+    }
+    setStep('recipient');
   };
 
   const handleContinue = () => {
@@ -103,367 +100,481 @@ export default function SendMoneyScreen() {
       return;
     }
 
-    if (!sendAmount || parseFloat(sendAmount) <= 0) {
-      Alert.alert('Error', 'Please enter a valid amount');
-      return;
-    }
-
     if (!selectedRecipient) {
       Alert.alert('Error', 'Please select a recipient');
       return;
     }
+
+    const feeAmount = (parseFloat(sendAmount) * (exchangeRate?.fee_percentage || 2.5)) / 100;
+    const totalAmount = parseFloat(sendAmount) + feeAmount;
 
     router.push({
       pathname: '/send-confirm',
       params: {
         recipientId: selectedRecipient.id,
         sendAmount,
-        receiveAmount,
+        receiveAmount: receiveAmount.replace(/,/g, ''),
         currency,
-        feeAmount: calculateFee().toFixed(2),
-        totalAmount: calculateTotal().toFixed(2),
+        feeAmount: feeAmount.toFixed(2),
+        totalAmount: totalAmount.toFixed(2),
         exchangeRate: exchangeRate?.rate.toString(),
       },
     });
   };
 
-  return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Send Money</Text>
+  if (step === 'currency') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <ArrowLeft size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.title}>Which currency you'll sent?</Text>
+
+        <View style={styles.currencyOptions}>
+          <TouchableOpacity
+            style={[styles.currencyTab, currency === 'USD' && styles.currencyTabActive]}
+            onPress={() => {
+              setCurrency('USD');
+              setStep('amount');
+            }}
+          >
+            <Text style={[styles.currencyTabText, currency === 'USD' && styles.currencyTabTextActive]}>
+              International
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.currencyTab]}
+            onPress={() => Alert.alert('Coming Soon', 'Local currency support coming soon')}
+          >
+            <Text style={styles.currencyTabText}>KES Only</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.currencyCards}>
+          <TouchableOpacity
+            style={[styles.currencyCard, currency === 'USD' && styles.currencyCardActive]}
+            onPress={() => setCurrency('USD')}
+          >
+            <Text style={styles.currencyFlag}>🇺🇸</Text>
+            <Text style={styles.currencyCode}>USD</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.currencyCard, currency === 'GBP' && styles.currencyCardActive]}
+            onPress={() => setCurrency('GBP')}
+          >
+            <Text style={styles.currencyFlag}>🇬🇧</Text>
+            <Text style={styles.currencyCode}>GBP</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.currencyCard, currency === 'EUR' && styles.currencyCardActive]}
+            onPress={() => setCurrency('EUR')}
+          >
+            <Text style={styles.currencyFlag}>🇪🇺</Text>
+            <Text style={styles.currencyCode}>EUR</Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity style={styles.continueButton} onPress={() => setStep('amount')}>
+          <Text style={styles.continueButtonText}>Continue</Text>
+        </TouchableOpacity>
       </View>
+    );
+  }
 
-      <View style={styles.content}>
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Select Currency</Text>
-          <View style={styles.currencySelector}>
-            {(['USD', 'GBP', 'EUR'] as Currency[]).map((curr) => (
-              <TouchableOpacity
-                key={curr}
-                style={[
-                  styles.currencyButton,
-                  currency === curr && styles.currencyButtonActive,
-                ]}
-                onPress={() => setCurrency(curr)}
-              >
-                <Text
-                  style={[
-                    styles.currencyButtonText,
-                    currency === curr && styles.currencyButtonTextActive,
-                  ]}
+  if (step === 'amount') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => setStep('currency')}>
+            <ArrowLeft size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.title}>Which currency you'll sent?</Text>
+
+        <View style={styles.currencySection}>
+          <View style={styles.currencyRow}>
+            <Text style={styles.currencyFlag}>🇺🇸</Text>
+            <Text style={styles.currencyLabel}>{currency}</Text>
+            <Text style={styles.amountLabel}>[Amount you sent]</Text>
+          </View>
+          <Text style={styles.amountDisplay}>{sendAmount || '0'}</Text>
+        </View>
+
+        <View style={styles.exchangeSection}>
+          <Text style={styles.convertLabel}>Convert to</Text>
+        </View>
+
+        <View style={styles.currencySection}>
+          <View style={styles.currencyRow}>
+            <Text style={styles.currencyFlag}>🇰🇪</Text>
+            <Text style={styles.currencyLabel}>KES</Text>
+            <Text style={styles.amountLabel}>[Recipient will gets]</Text>
+          </View>
+          <Text style={styles.amountDisplay}>{receiveAmount || '0'}</Text>
+        </View>
+
+        <View style={styles.numberPad}>
+          {[['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9']].map((row, rowIndex) => (
+            <View key={rowIndex} style={styles.numberRow}>
+              {row.map((num) => (
+                <TouchableOpacity
+                  key={num}
+                  style={styles.numberButton}
+                  onPress={() => handleNumberPress(num)}
                 >
-                  {curr}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>You Send</Text>
-          <View style={styles.amountInputContainer}>
-            <Text style={styles.currencySymbol}>{getCurrencySymbol(currency)}</Text>
-            <TextInput
-              style={styles.amountInput}
-              placeholder="0.00"
-              value={sendAmount}
-              onChangeText={setSendAmount}
-              keyboardType="decimal-pad"
-            />
-            <Text style={styles.currencyCode}>{currency}</Text>
-          </View>
-        </View>
-
-        <View style={styles.exchangeInfo}>
-          <ArrowDown size={24} color="#0066FF" />
-          {exchangeRate && (
-            <Text style={styles.exchangeRate}>
-              1 {currency} = {exchangeRate.rate.toFixed(2)} KES
-            </Text>
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recipient Gets</Text>
-          <View style={styles.amountInputContainer}>
-            <Text style={styles.currencySymbol}>KES</Text>
-            <TextInput
-              style={styles.amountInput}
-              placeholder="0.00"
-              value={receiveAmount}
-              editable={false}
-            />
-          </View>
-        </View>
-
-        <View style={styles.feeBox}>
-          <View style={styles.feeRow}>
-            <Text style={styles.feeLabel}>Fee ({exchangeRate?.fee_percentage}%)</Text>
-            <Text style={styles.feeValue}>
-              {getCurrencySymbol(currency)}{calculateFee().toFixed(2)}
-            </Text>
-          </View>
-          <View style={styles.feeRow}>
-            <Text style={styles.feeLabelBold}>Total</Text>
-            <Text style={styles.feeValueBold}>
-              {getCurrencySymbol(currency)}{calculateTotal().toFixed(2)}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.recipientHeader}>
-            <Text style={styles.sectionTitle}>Select Recipient</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/recipients')}>
-              <Text style={styles.addRecipientText}>+ Add New</Text>
+                  <Text style={styles.numberText}>{num}</Text>
+                  <Text style={styles.numberLetters}>
+                    {num === '2' && 'ABC'}
+                    {num === '3' && 'DEF'}
+                    {num === '4' && 'GHI'}
+                    {num === '5' && 'JKL'}
+                    {num === '6' && 'MNO'}
+                    {num === '7' && 'PQRS'}
+                    {num === '8' && 'TUV'}
+                    {num === '9' && 'WXYZ'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ))}
+          <View style={styles.numberRow}>
+            <View style={styles.numberButton} />
+            <TouchableOpacity style={styles.numberButton} onPress={() => handleNumberPress('0')}>
+              <Text style={styles.numberText}>0</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.numberButton} onPress={handleBackspace}>
+              <Delete size={24} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
-
-          {recipients.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Users size={48} color="#CCCCCC" />
-              <Text style={styles.emptyStateText}>No recipients yet</Text>
-              <TouchableOpacity onPress={() => router.push('/(tabs)/recipients')}>
-                <Text style={styles.emptyStateLink}>Add your first recipient</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            recipients.map((recipient) => (
-              <TouchableOpacity
-                key={recipient.id}
-                style={[
-                  styles.recipientCard,
-                  selectedRecipient?.id === recipient.id && styles.recipientCardActive,
-                ]}
-                onPress={() => setSelectedRecipient(recipient)}
-              >
-                <View>
-                  <Text style={styles.recipientName}>{recipient.full_name}</Text>
-                  <Text style={styles.recipientPhone}>{recipient.phone_number}</Text>
-                </View>
-                {selectedRecipient?.id === recipient.id && (
-                  <View style={styles.selectedBadge}>
-                    <Text style={styles.selectedBadgeText}>✓</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))
-          )}
         </View>
 
         <TouchableOpacity
-          style={[
-            styles.continueButton,
-            (!sendAmount || !selectedRecipient) && styles.continueButtonDisabled,
-          ]}
-          onPress={handleContinue}
-          disabled={!sendAmount || !selectedRecipient}
+          style={[styles.continueButton, !sendAmount && styles.continueButtonDisabled]}
+          onPress={handleContinueFromAmount}
+          disabled={!sendAmount}
         >
           <Text style={styles.continueButtonText}>Continue</Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => setStep('amount')}>
+          <ArrowLeft size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.title}>Who are you sending to?</Text>
+      <Text style={styles.subtitle}>
+        Add or choose your recipient to continue your transaction.
+      </Text>
+
+      <TouchableOpacity
+        style={styles.addRecipientButton}
+        onPress={() => router.push('/(tabs)/recipients')}
+      >
+        <Plus size={20} color="#4F46E5" />
+        <Text style={styles.addRecipientText}>Add New Recipient</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.sectionTitle}>Recipients</Text>
+
+      {recipients.map((recipient) => (
+        <TouchableOpacity
+          key={recipient.id}
+          style={[
+            styles.recipientCard,
+            selectedRecipient?.id === recipient.id && styles.recipientCardActive,
+          ]}
+          onPress={() => setSelectedRecipient(recipient)}
+        >
+          <View style={styles.recipientAvatar}>
+            <Text style={styles.recipientAvatarText}>
+              {recipient.full_name.charAt(0)}
+            </Text>
+          </View>
+          <View style={styles.recipientInfo}>
+            <Text style={styles.recipientName}>{recipient.full_name}</Text>
+            <Text style={styles.recipientEmail}>{recipient.phone_number}</Text>
+          </View>
+          {selectedRecipient?.id === recipient.id && (
+            <View style={styles.selectedIndicator}>
+              <Text style={styles.selectedIndicatorText}>✓</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      ))}
+
+      <Text style={styles.sectionTitle}>Recent Transaction</Text>
+      {recipients.length > 0 && (
+        <TouchableOpacity style={styles.recentCard}>
+          <View style={styles.recipientAvatar}>
+            <Text style={styles.recipientAvatarText}>
+              {recipients[0].full_name.charAt(0)}
+            </Text>
+          </View>
+          <View style={styles.recipientInfo}>
+            <Text style={styles.recipientName}>{recipients[0].full_name}</Text>
+            <Text style={styles.recipientEmail}>{recipients[0].phone_number}</Text>
+          </View>
+          <Text style={styles.sendAgainText}>Send Again</Text>
+        </TouchableOpacity>
+      )}
+
+      <TouchableOpacity
+        style={[styles.continueButton, !selectedRecipient && styles.continueButtonDisabled]}
+        onPress={handleContinue}
+        disabled={!selectedRecipient}
+      >
+        <Text style={styles.continueButtonText}>Continue</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9F9F9',
+    backgroundColor: '#000000',
+    paddingHorizontal: 24,
+    paddingTop: 60,
   },
   header: {
-    padding: 24,
-    paddingTop: 60,
-    backgroundColor: '#FFFFFF',
+    marginBottom: 32,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#1A1A1A',
+    color: '#FFFFFF',
+    marginBottom: 8,
   },
-  content: {
-    padding: 16,
-  },
-  section: {
+  subtitle: {
+    fontSize: 14,
+    color: '#999999',
     marginBottom: 24,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1A1A1A',
-    marginBottom: 12,
-  },
-  currencySelector: {
+  currencyOptions: {
     flexDirection: 'row',
     gap: 12,
+    marginBottom: 32,
   },
-  currencyButton: {
+  currencyTab: {
     flex: 1,
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+    paddingHorizontal: 24,
+    borderRadius: 24,
+    backgroundColor: '#1A1A1A',
     alignItems: 'center',
   },
-  currencyButtonActive: {
-    backgroundColor: '#0066FF',
-    borderColor: '#0066FF',
+  currencyTabActive: {
+    backgroundColor: '#4F46E5',
   },
-  currencyButtonText: {
-    fontSize: 16,
+  currencyTabText: {
+    fontSize: 14,
     fontWeight: '600',
-    color: '#666666',
+    color: '#999999',
   },
-  currencyButtonTextActive: {
+  currencyTabTextActive: {
     color: '#FFFFFF',
   },
-  amountInputContainer: {
+  currencyCards: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+    gap: 12,
+    marginBottom: 48,
   },
-  currencySymbol: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#666666',
-    marginRight: 8,
-  },
-  amountInput: {
+  currencyCard: {
     flex: 1,
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: '#1A1A1A',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  currencyCardActive: {
+    borderColor: '#4F46E5',
+    backgroundColor: 'rgba(79, 70, 229, 0.1)',
+  },
+  currencyFlag: {
     fontSize: 32,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    paddingVertical: 16,
+    marginBottom: 8,
   },
   currencyCode: {
     fontSize: 16,
     fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  currencySection: {
+    backgroundColor: '#1A1A1A',
+    padding: 20,
+    borderRadius: 16,
+    marginBottom: 16,
+  },
+  currencyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  currencyLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  amountLabel: {
+    fontSize: 12,
     color: '#666666',
   },
-  exchangeInfo: {
+  amountDisplay: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  exchangeSection: {
     alignItems: 'center',
     marginVertical: 16,
   },
-  exchangeRate: {
+  convertLabel: {
     fontSize: 14,
-    color: '#666666',
-    marginTop: 8,
+    color: '#999999',
   },
-  feeBox: {
-    backgroundColor: '#F0F7FF',
-    padding: 16,
-    borderRadius: 12,
+  numberPad: {
+    marginTop: 32,
     marginBottom: 24,
   },
-  feeRow: {
+  numberRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 16,
   },
-  feeLabel: {
-    fontSize: 14,
-    color: '#666666',
-  },
-  feeValue: {
-    fontSize: 14,
-    color: '#1A1A1A',
-  },
-  feeLabelBold: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A1A',
-  },
-  feeValueBold: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A1A',
-  },
-  recipientHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  numberButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#2A2A2A',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+  },
+  numberText: {
+    fontSize: 28,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  numberLetters: {
+    fontSize: 10,
+    color: '#666666',
+    marginTop: 2,
+  },
+  addRecipientButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#4F46E5',
+    marginBottom: 24,
+    gap: 8,
   },
   addRecipientText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0066FF',
-  },
-  emptyState: {
-    alignItems: 'center',
-    padding: 32,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-  },
-  emptyStateText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#666666',
-    marginTop: 16,
-    marginBottom: 8,
+    color: '#4F46E5',
   },
-  emptyStateLink: {
-    fontSize: 14,
-    color: '#0066FF',
-    fontWeight: '600',
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 16,
   },
   recipientCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#1A1A1A',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     marginBottom: 12,
     borderWidth: 2,
     borderColor: 'transparent',
   },
   recipientCardActive: {
-    borderColor: '#0066FF',
-    backgroundColor: '#F0F7FF',
+    borderColor: '#4F46E5',
+    backgroundColor: 'rgba(79, 70, 229, 0.1)',
+  },
+  recipientAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#2A2A2A',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  recipientAvatarText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  recipientInfo: {
+    flex: 1,
   },
   recipientName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1A1A1A',
+    color: '#FFFFFF',
     marginBottom: 4,
   },
-  recipientPhone: {
+  recipientEmail: {
     fontSize: 14,
-    color: '#666666',
+    color: '#999999',
   },
-  selectedBadge: {
+  selectedIndicator: {
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#0066FF',
+    backgroundColor: '#4F46E5',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  selectedBadgeText: {
+  selectedIndicatorText: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
   },
-  continueButton: {
-    backgroundColor: '#0066FF',
-    paddingVertical: 16,
-    borderRadius: 12,
+  recentCard: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    backgroundColor: '#1A1A1A',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 24,
+  },
+  sendAgainText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4F46E5',
+  },
+  continueButton: {
+    backgroundColor: '#4F46E5',
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginTop: 'auto',
+    marginBottom: 24,
   },
   continueButtonDisabled: {
     opacity: 0.4,
   },
   continueButtonText: {
-    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
